@@ -92,11 +92,11 @@ class SbcAutomator {
       card.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
       await this.waitForFrame();
 
-      const candidates = this.getClickCandidates(card);
+      const candidates = this.getSbcOpenClickCandidates(card);
       for (const candidate of candidates) {
         this.throwIfStopped();
-        await this.clickElement(candidate);
-        const opened = await this.waitFor(() => this.isInsideSelectedSbc(name), 6000, '', true);
+        await this.clickNavigationElement(candidate);
+        const opened = await this.waitFor(() => this.waitForSbcOpenStable(name), 7000, '', true);
         if (opened) {
           this.notify(`Verified SBC opened: ${name}`);
           return;
@@ -328,6 +328,39 @@ class SbcAutomator {
       .trim();
   }
 
+  getSbcOpenClickCandidates(card) {
+    const direct = [
+      card.closest('button, [role="button"], [tabindex], .tile, .ut-tile, .listFUTItem, .sbc-set-tile'),
+      ...card.querySelectorAll('button, [role="button"], [tabindex], .tile, .ut-tile, .listFUTItem, .sbc-set-tile'),
+      card
+    ].filter(Boolean);
+
+    const unique = [];
+    for (const node of direct) {
+      if (!node || !node.isConnected) {
+        continue;
+      }
+      if (node.matches('a[href]')) {
+        continue;
+      }
+      if (!unique.includes(node)) {
+        unique.push(node);
+      }
+    }
+
+    return unique;
+  }
+
+  waitForSbcOpenStable(name) {
+    const opened = this.isInsideSelectedSbc(name);
+    if (!opened) {
+      return false;
+    }
+
+    const favouritesVisible = !!this.findByText(['h1', 'h2', 'h3', '[role="heading"]'], 'Favourites');
+    return !favouritesVisible;
+  }
+
   getClickCandidates(node) {
     const ordered = [
       node.closest('button, [role="button"], .tile, .listFUTItem, .ut-tile, .sbc-set-tile'),
@@ -366,7 +399,8 @@ class SbcAutomator {
       return text === target || text.includes(target) || target.includes(text);
     });
 
-    return (hasSquadBuilder || hasSubmitPath || hasRequirementLabels) && titleMatches;
+    const hasOpenUi = hasSquadBuilder || hasSubmitPath || hasRequirementLabels;
+    return hasOpenUi && (titleMatches || hasSubmitPath || hasRequirementLabels);
   }
 
   async removeExactlyThreePlayers() {
@@ -486,6 +520,17 @@ class SbcAutomator {
 
   getNormalizedText(node) {
     return this.normalize(node?.textContent || node?.innerText || '');
+  }
+
+  async clickNavigationElement(el) {
+    this.throwIfStopped();
+    if (!el || !el.isConnected) {
+      throw new AutomationError('Cannot click disconnected element.');
+    }
+    const clickable = el.closest('button, [role="button"], [tabindex], .clickable') || el;
+    clickable.click();
+    await this.waitForFrame();
+    await this.waitForFrame();
   }
 
   async clickElement(el) {
