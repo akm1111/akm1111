@@ -58,6 +58,7 @@ The loop stops when:
   - Try entering the base SBC name (for example `81+ Player Pick`) even if card text shows `1 of 3 ...`.
 
 - **Automation stopped: Timed out waiting for UI state**
+  - New builds include the failing step in the error message to pinpoint where it stopped.
   - This usually means the SBC card did not actually open or the page labels changed.
   - Confirm you are on **SBCs → Favourites** and the SBC name matches exactly.
   - Click the SBC manually once to verify it opens, then press **Start** again.

@@ -7,6 +7,7 @@ class SbcAutomator {
     this.sbcName = '';
     this.logPrefix = '[FC26-SBC]';
     this.defaultTimeoutMs = 15000;
+    this.lastAction = 'idle';
   }
 
   start(sbcName) {
@@ -65,13 +66,15 @@ class SbcAutomator {
   }
 
   async ensureOnSbcFavourites() {
-    const heading = await this.waitFor(() => this.findByText(['h1', 'h2', 'h3', '[role="heading"]'], 'Favourites'));
+    this.setAction('Verify SBC Favourites screen');
+    const heading = await this.waitFor(() => this.findByText(['h1', 'h2', 'h3', '[role="heading"]'], 'Favourites'), this.defaultTimeoutMs, 'Timed out: Favourites heading not found.');
     if (!heading) {
       throw new AutomationError('Favourites page not detected. Navigate to SBCs → Favourites first.');
     }
   }
 
   async openSbcByName(name) {
+    this.setAction(`Open SBC card: ${name}`);
     this.notify(`Locating SBC card: ${name}`);
     const card = await this.waitFor(() => this.findSbcCardByName(name), this.defaultTimeoutMs, `SBC card not found: ${name}`);
     if (!card) {
@@ -108,7 +111,8 @@ class SbcAutomator {
   }
 
   async openSquadBuilder() {
-    const button = await this.waitFor(() => this.findButtonByTexts(['Squad Builder']));
+    this.setAction('Open Squad Builder');
+    const button = await this.waitFor(() => this.findButtonByTexts(['Squad Builder']), this.defaultTimeoutMs, 'Timed out: Squad Builder button not found.');
     if (!button) {
       throw new AutomationError('Squad Builder button not found.');
     }
@@ -116,7 +120,8 @@ class SbcAutomator {
   }
 
   async enableIgnorePosition() {
-    const option = await this.waitFor(() => this.findToggleByLabel('Ignore Position'));
+    this.setAction('Enable Ignore Position');
+    const option = await this.waitFor(() => this.findToggleByLabel('Ignore Position'), this.defaultTimeoutMs, 'Timed out: Ignore Position toggle not found.');
     if (!option) {
       throw new AutomationError('Ignore Position toggle not found.');
     }
@@ -132,7 +137,8 @@ class SbcAutomator {
   }
 
   async setSortLowToHigh() {
-    const sortBtn = await this.waitFor(() => this.findButtonByTexts(['Sort']));
+    this.setAction('Set sort to Player Rating Low to High');
+    const sortBtn = await this.waitFor(() => this.findButtonByTexts(['Sort']), this.defaultTimeoutMs, 'Timed out: Sort control not found.');
     if (!sortBtn) {
       throw new AutomationError('Sort control not found.');
     }
@@ -146,7 +152,8 @@ class SbcAutomator {
   }
 
   async setPlayerQuality(label) {
-    const qualityBtn = await this.waitFor(() => this.findButtonByTexts(['Player Quality', 'Quality']));
+    this.setAction(`Set Player Quality: ${label}`);
+    const qualityBtn = await this.waitFor(() => this.findButtonByTexts(['Player Quality', 'Quality']), this.defaultTimeoutMs, 'Timed out: Player Quality control not found.');
     if (!qualityBtn) {
       throw new AutomationError('Player Quality control not found.');
     }
@@ -160,13 +167,14 @@ class SbcAutomator {
   }
 
   async generateAndApplySquad() {
-    const generate = await this.waitFor(() => this.findButtonByTexts(['Build Squad', 'Generate Squad', 'Generate']));
+    this.setAction('Generate and apply squad');
+    const generate = await this.waitFor(() => this.findButtonByTexts(['Build Squad', 'Generate Squad', 'Generate']), this.defaultTimeoutMs, 'Timed out: Generate squad button not found.');
     if (!generate) {
       throw new AutomationError('Generate squad button not found.');
     }
     await this.clickElement(generate);
 
-    const apply = await this.waitFor(() => this.findButtonByTexts(['Use Squad', 'Apply', 'Confirm']));
+    const apply = await this.waitFor(() => this.findButtonByTexts(['Use Squad', 'Apply', 'Confirm']), this.defaultTimeoutMs, 'Timed out: Apply squad button not found.');
     if (!apply) {
       throw new AutomationError('Apply squad button not found.');
     }
@@ -174,6 +182,7 @@ class SbcAutomator {
   }
 
   async validateRequirementsBeforeSubmit() {
+    this.setAction('Validate requirements before submit');
     const invalidRequirement = document.querySelector('.requirement.is-failed, .requirement.failed, .sbc-requirement--failed, .negative');
     if (invalidRequirement) {
       throw new AutomationError('SBC requirements not met. Submission blocked for safety.');
@@ -190,13 +199,14 @@ class SbcAutomator {
   }
 
   async submitCurrentSquad() {
-    const submit = await this.waitFor(() => this.findButtonByTexts(['Submit', 'Exchange Squad']));
+    this.setAction('Submit current squad');
+    const submit = await this.waitFor(() => this.findButtonByTexts(['Submit', 'Exchange Squad']), this.defaultTimeoutMs, 'Timed out: Submit button not found.');
     if (!submit) {
       throw new AutomationError('Submit button missing before submission.');
     }
     await this.clickElement(submit);
 
-    const confirm = await this.waitFor(() => this.findButtonByTexts(['Submit Squad', 'Yes', 'Confirm']));
+    const confirm = await this.waitFor(() => this.findButtonByTexts(['Submit Squad', 'Yes', 'Confirm']), this.defaultTimeoutMs, 'Timed out: Submission confirmation dialog not found.');
     if (!confirm) {
       throw new AutomationError('Submission confirmation not found.');
     }
@@ -204,7 +214,8 @@ class SbcAutomator {
   }
 
   async verifySubmissionSuccess() {
-    const success = await this.waitFor(() => this.findByText(['div', 'span', 'p'], 'Challenge Complete') || this.findByText(['div', 'span', 'p'], 'Submitted') || this.findByText(['div', 'span', 'p'], 'Completed'));
+    this.setAction('Verify submission success');
+    const success = await this.waitFor(() => this.findByText(['div', 'span', 'p'], 'Challenge Complete') || this.findByText(['div', 'span', 'p'], 'Submitted') || this.findByText(['div', 'span', 'p'], 'Completed'), this.defaultTimeoutMs, 'Timed out: Submission success confirmation not detected.');
     if (!success) {
       throw new AutomationError('Submission success state not detected.');
     }
@@ -273,6 +284,7 @@ class SbcAutomator {
   }
 
   async removeExactlyThreePlayers() {
+    this.setAction('Remove exactly 3 players');
     this.notify('Removing exactly 3 players from next squad...');
     const playerSlots = await this.waitFor(() => [...document.querySelectorAll('.player, .squadSlot, .slot')].filter((node) => !node.classList.contains('empty')));
     if (!playerSlots || playerSlots.length < 3) {
@@ -362,7 +374,7 @@ class SbcAutomator {
     return new Promise((resolve) => requestAnimationFrame(() => resolve()));
   }
 
-  async waitFor(predicate, timeoutMs = this.defaultTimeoutMs, timeoutMessage = "Timed out waiting for UI state.", suppressTimeoutError = false) {
+  async waitFor(predicate, timeoutMs = this.defaultTimeoutMs, timeoutMessage = null, suppressTimeoutError = false) {
     this.throwIfStopped();
     const existing = predicate();
     if (existing) {
@@ -407,7 +419,7 @@ class SbcAutomator {
             resolve(null);
             return;
           }
-          fail(new AutomationError(timeoutMessage));
+          fail(new AutomationError(timeoutMessage || `Timed out waiting for UI state during: ${this.lastAction}`));
           return;
         }
         requestAnimationFrame(tryResolve);
@@ -416,6 +428,11 @@ class SbcAutomator {
       observer.observe(document.body, { childList: true, subtree: true, attributes: true });
       requestAnimationFrame(tryResolve);
     });
+  }
+
+  setAction(action) {
+    this.lastAction = action;
+    this.notify(`Step: ${action}`);
   }
 
   throwIfStopped() {
@@ -429,7 +446,7 @@ class SbcAutomator {
     this.aborted = true;
     const reason = error instanceof Error ? error.message : String(error);
     console.error(this.logPrefix, reason, error);
-    this.notify(`Automation stopped: ${reason}`, 'error');
+    this.notify(`Automation stopped: ${reason} (step: ${this.lastAction})`, 'error');
   }
 
   notify(message, level = 'info') {
