@@ -12,6 +12,10 @@ class SbcAutomator {
 
   start(sbcName) {
     if (this.running) {
+      if (this.sbcName === sbcName) {
+        this.notify(`Already running on SBC: ${sbcName}`);
+        return;
+      }
       throw new AutomationError('Automation is already running.');
     }
     this.running = true;
@@ -253,6 +257,8 @@ class SbcAutomator {
   findSbcCardByName(name) {
     const target = this.simplifySbcName(name);
     const cards = this.getFavouritesCardContainers();
+    let bestCard = null;
+    let bestScore = 0;
 
     for (const card of cards) {
       const titleNode = this.findCardTitleNode(card, target);
@@ -260,24 +266,19 @@ class SbcAutomator {
         continue;
       }
       const title = this.simplifySbcName(this.getNormalizedText(titleNode));
-      if (title === target) {
+      const score = this.scoreTitleMatch(title, target);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCard = card;
+      }
+      if (score === 1) {
         return card;
       }
     }
 
-    for (const card of cards) {
-      const titleNode = this.findCardTitleNode(card, target);
-      if (!titleNode) {
-        continue;
-      }
-      const title = this.simplifySbcName(this.getNormalizedText(titleNode));
-      if (title.includes(target) || target.includes(title)) {
-        return card;
-      }
-    }
-
-    return null;
+    return bestScore >= 0.5 ? bestCard : null;
   }
+
 
 
   getFavouritesCardContainers() {
@@ -298,6 +299,24 @@ class SbcAutomator {
       }
       return true;
     });
+  }
+
+
+  scoreTitleMatch(title, target) {
+    if (!title || !target) {
+      return 0;
+    }
+    if (title === target) {
+      return 1;
+    }
+
+    const titleTokens = new Set(title.split(' ').filter(Boolean));
+    const targetTokens = new Set(target.split(' ').filter(Boolean));
+    const shared = [...targetTokens].filter((token) => titleTokens.has(token)).length;
+    const tokenScore = shared / Math.max(targetTokens.size, 1);
+
+    const includesBoost = title.includes(target) || target.includes(title) ? 0.2 : 0;
+    return Math.min(0.95, tokenScore + includesBoost);
   }
 
   findCardTitleNode(card, target) {
@@ -580,7 +599,7 @@ class SbcAutomator {
           return;
         }
         if (!this.running || this.aborted) {
-          fail(new AutomationError('Automation stopped.'));
+          fail(new AutomationError(`Automation stopped (running=${this.running}, aborted=${this.aborted}).`));
           return;
         }
         const value = predicate();
@@ -613,7 +632,7 @@ class SbcAutomator {
 
   throwIfStopped() {
     if (!this.running || this.aborted) {
-      throw new AutomationError('Automation stopped.');
+      throw new AutomationError(`Automation stopped (running=${this.running}, aborted=${this.aborted}).`);
     }
   }
 
@@ -636,12 +655,22 @@ class SbcAutomator {
   }
 }
 
-const automator = new SbcAutomator();
+const state = window.__FC26_SBC_AUTOMATION_STATE__ || (window.__FC26_SBC_AUTOMATION_STATE__ = {});
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+if (!state.automator) {
+  state.automator = new SbcAutomator();
+}
+
+if (state.messageListener) {
+  chrome.runtime.onMessage.removeListener(state.messageListener);
+}
+
+state.messageListener = (message, _sender, sendResponse) => {
   if (!message?.type) {
     return;
   }
+
+  const automator = state.automator;
 
   if (message.type === 'PING_AUTOMATION') {
     sendResponse({ ok: true, running: automator.running, sbcName: automator.sbcName });
@@ -663,4 +692,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return true;
   }
-});
+};
+
+chrome.runtime.onMessage.addListener(state.messageListener);
