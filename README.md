@@ -52,6 +52,11 @@ The loop stops when:
 
 ## Troubleshooting
 
+- **Automation stopped: Timed out waiting for UI state**
+  - This usually means the SBC card did not actually open or the page labels changed.
+  - Confirm you are on **SBCs → Favourites** and the SBC name matches exactly.
+  - Click the SBC manually once to verify it opens, then press **Start** again.
+
 - **Popup shows “Automation running...” but nothing happens**
   - Make sure the FC Web App tab is active and still on **SBCs → Favourites**.
   - Keep the tab in foreground for the first run so UI transitions can be detected.

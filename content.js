@@ -6,6 +6,7 @@ class SbcAutomator {
     this.aborted = false;
     this.sbcName = '';
     this.logPrefix = '[FC26-SBC]';
+    this.defaultTimeoutMs = 15000;
   }
 
   start(sbcName) {
@@ -71,18 +72,30 @@ class SbcAutomator {
   }
 
   async openSbcByExactName(name) {
-    const card = await this.waitFor(() => this.findExactTextElement(name));
+    this.notify(`Locating SBC card: ${name}`);
+    const card = await this.waitFor(() => this.findExactTextElement(name), this.defaultTimeoutMs, `SBC card not found: ${name}`);
     if (!card) {
       throw new AutomationError(`SBC "${name}" not found in Favourites.`);
     }
 
-    const clickable = card.closest('button, [role="button"], .tile, .listFUTItem') || card;
-    await this.clickElement(clickable);
-    const openedName = await this.waitFor(() => this.findExactTextElement(name));
-    if (!openedName) {
-      throw new AutomationError(`Failed to verify opened SBC: ${name}`);
+    const candidates = this.getClickCandidates(card);
+    let opened = false;
+
+    for (const candidate of candidates) {
+      this.throwIfStopped();
+      await this.clickElement(candidate);
+      const result = await this.waitFor(() => this.isInsideSelectedSbc(name), 4000, '', true);
+      if (result) {
+        opened = true;
+        break;
+      }
     }
-    this.notify(`Verified SBC: ${name}`);
+
+    if (!opened) {
+      throw new AutomationError(`Could not open SBC "${name}" after click attempts.`);
+    }
+
+    this.notify(`Verified SBC opened: ${name}`);
   }
 
   async reopenSbcByName(name) {
@@ -198,6 +211,32 @@ class SbcAutomator {
     this.notify('Submission confirmed.');
   }
 
+  getClickCandidates(node) {
+    const ordered = [
+      node.closest('button, [role="button"], .tile, .listFUTItem, .ut-tile, .sbc-set-tile'),
+      node.closest('[tabindex], li, article, .tileContent'),
+      node,
+      node.parentElement
+    ].filter(Boolean);
+
+    const unique = [];
+    for (const item of ordered) {
+      if (item && !unique.includes(item)) {
+        unique.push(item);
+      }
+    }
+    return unique;
+  }
+
+  isInsideSelectedSbc(name) {
+    const hasSquadBuilder = !!this.findButtonByTexts(['Squad Builder']);
+    const hasSubmitPath = !!this.findButtonByTexts(['Submit', 'Exchange Squad']);
+    const inFavourites = !!this.findByText(['h1', 'h2', 'h3', '[role="heading"]'], 'Favourites');
+    const titlePresent = !!this.findExactTextElement(name);
+
+    return (hasSquadBuilder || hasSubmitPath) && (!inFavourites || titlePresent);
+  }
+
   async removeExactlyThreePlayers() {
     this.notify('Removing exactly 3 players from next squad...');
     const playerSlots = await this.waitFor(() => [...document.querySelectorAll('.player, .squadSlot, .slot')].filter((node) => !node.classList.contains('empty')));
@@ -288,7 +327,7 @@ class SbcAutomator {
     return new Promise((resolve) => requestAnimationFrame(() => resolve()));
   }
 
-  async waitFor(predicate, timeoutMs = 10000) {
+  async waitFor(predicate, timeoutMs = this.defaultTimeoutMs, timeoutMessage = "Timed out waiting for UI state.", suppressTimeoutError = false) {
     this.throwIfStopped();
     const existing = predicate();
     if (existing) {
@@ -328,7 +367,12 @@ class SbcAutomator {
           return;
         }
         if (performance.now() - started > timeoutMs) {
-          fail(new AutomationError('Timed out waiting for UI state.'));
+          if (suppressTimeoutError) {
+            cleanup();
+            resolve(null);
+            return;
+          }
+          fail(new AutomationError(timeoutMessage));
           return;
         }
         requestAnimationFrame(tryResolve);
