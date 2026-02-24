@@ -48,3 +48,12 @@ The loop stops when:
 - SBC is unavailable/expired
 - Eligible players are insufficient
 - Any critical validation or interaction error occurs
+
+
+## Troubleshooting
+
+- **Start failed: Could not establish connection. Receiving end does not exist.**
+  - Make sure the active tab is the FC Web App page.
+  - Refresh the FC Web App tab once, then press **Start** again.
+  - If needed, close and reopen the extension popup and retry.
+

@@ -11,9 +11,31 @@ async function getActiveTab() {
   return tab;
 }
 
+async function ensureContentScript(tab) {
+  if (!tab?.id) {
+    throw new Error('No active tab available.');
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ['content.js']
+  });
+}
+
 async function sendToActiveTab(payload) {
   const tab = await getActiveTab();
-  return chrome.tabs.sendMessage(tab.id, payload);
+
+  try {
+    return await chrome.tabs.sendMessage(tab.id, payload);
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (!message.includes('Receiving end does not exist')) {
+      throw error;
+    }
+
+    await ensureContentScript(tab);
+    return chrome.tabs.sendMessage(tab.id, payload);
+  }
 }
 
 function setStatus(message, isError = false) {
@@ -46,7 +68,7 @@ startBtn.addEventListener('click', async () => {
     setStatus(`Running: ${sbcName}`);
   } catch (error) {
     await chrome.storage.local.set({ running: false });
-    setStatus(`Start failed: ${error.message}`, true);
+    setStatus(`Start failed: ${error.message}. Open FC Web App tab, then refresh once and try again.`, true);
   }
 });
 

@@ -3,7 +3,7 @@
   "name": "FC 26 SBC Automation",
   "version": "1.0.0",
   "description": "Automates repeated SBC completion loops in FC 26 Ultimate Team Web App.",
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage", "tabs", "scripting"],
   "host_permissions": [
     "https://www.ea.com/*",
     "https://*.ea.com/*"
