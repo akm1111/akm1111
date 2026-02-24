@@ -121,26 +121,39 @@ class SbcAutomator {
 
   async enableIgnorePosition() {
     this.setAction('Enable Ignore Position');
-    const option = await this.waitFor(() => this.findIgnorePositionControl(), this.defaultTimeoutMs, 'Timed out: Ignore Position toggle not found.');
-    if (!option) {
-      throw new AutomationError('Ignore Position toggle not found.');
-    }
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      const option = await this.waitFor(
+        () => this.findIgnorePositionControl(),
+        this.defaultTimeoutMs,
+        'Timed out: Ignore Position toggle not found.'
+      );
+      if (!option) {
+        throw new AutomationError('Ignore Position toggle not found.');
+      }
 
-    if (this.isIgnorePositionEnabled(option)) {
-      return;
-    }
-
-    const candidates = this.getClickCandidates(option);
-    for (const candidate of candidates) {
-      this.throwIfStopped();
-      await this.clickElement(candidate);
-      const enabled = await this.waitFor(() => this.isIgnorePositionEnabled(option), 2500, '', true);
-      if (enabled) {
+      if (this.isIgnorePositionEnabled(option)) {
         return;
+      }
+
+      const candidates = this.findIgnorePositionCandidates(option);
+      for (const candidate of candidates) {
+        this.throwIfStopped();
+        await this.clickElement(candidate);
+        const enabled = await this.waitFor(() => this.isIgnorePositionEnabled(option), 2500, '', true);
+        if (enabled) {
+          return;
+        }
+      }
+
+      // If a bad click closed the builder pane, recover and retry once.
+      const squadBuilderButton = this.findButtonByTexts(['Squad Builder']);
+      if (squadBuilderButton && cycle === 0) {
+        await this.clickElement(squadBuilderButton);
+        await this.waitFor(() => this.findIgnorePositionControl(), this.defaultTimeoutMs, 'Timed out reopening Squad Builder.');
       }
     }
 
-    throw new AutomationError('Failed to enable Ignore Position after multiple click strategies.');
+    throw new AutomationError('Failed to enable Ignore Position without leaving Squad Builder context.');
   }
 
   async setSortLowToHigh() {
@@ -324,7 +337,8 @@ class SbcAutomator {
   }
 
   findIgnorePositionControl() {
-    const labelNode = this.findByText(['label', 'span', 'div', 'li', 'p'], 'Ignore Position');
+    const root = this.findSquadBuilderRoot();
+    const labelNode = this.findByText(['label', 'span', 'div', 'li', 'p'], 'Ignore Position', root);
     if (!labelNode) {
       return null;
     }
@@ -334,6 +348,35 @@ class SbcAutomator {
       labelNode.parentElement ||
       labelNode
     );
+  }
+
+  findIgnorePositionCandidates(option) {
+    const root = this.findSquadBuilderRoot();
+    const controls = [
+      ...option.querySelectorAll('[role="switch"], [role="checkbox"], input[type="checkbox"], button, [tabindex], .toggle, .ut-toggle')
+    ];
+    const prioritized = [...controls, option].filter((node) => {
+      if (!node || !node.isConnected) {
+        return false;
+      }
+      if (node.matches('a[href]')) {
+        return false;
+      }
+      if (root && root !== document.body && !root.contains(node)) {
+        return false;
+      }
+      return true;
+    });
+
+    return prioritized.length ? prioritized : this.getClickCandidates(option);
+  }
+
+  findSquadBuilderRoot() {
+    const heading = this.findByText(['h1', 'h2', 'h3', 'div', 'span'], 'Squad Builder');
+    if (!heading) {
+      return document.body;
+    }
+    return heading.closest('[role="dialog"], .ut-popup, .modal, .panel, .view, .ut-squad-builder-view') || document.body;
   }
 
   isIgnorePositionEnabled(node) {
@@ -356,9 +399,9 @@ class SbcAutomator {
     );
   }
 
-  findByText(selectors, text) {
+  findByText(selectors, text, root = document) {
     const matcher = this.normalize(text);
-    const nodes = [...document.querySelectorAll(selectors.join(','))];
+    const nodes = [...root.querySelectorAll(selectors.join(','))];
     return nodes.find((node) => this.getNormalizedText(node).includes(matcher)) || null;
   }
 
