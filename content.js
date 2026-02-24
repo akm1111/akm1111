@@ -121,19 +121,26 @@ class SbcAutomator {
 
   async enableIgnorePosition() {
     this.setAction('Enable Ignore Position');
-    const option = await this.waitFor(() => this.findToggleByLabel('Ignore Position'), this.defaultTimeoutMs, 'Timed out: Ignore Position toggle not found.');
+    const option = await this.waitFor(() => this.findIgnorePositionControl(), this.defaultTimeoutMs, 'Timed out: Ignore Position toggle not found.');
     if (!option) {
       throw new AutomationError('Ignore Position toggle not found.');
     }
 
-    const checked = this.isToggleEnabled(option);
-    if (!checked) {
-      await this.clickElement(option);
+    if (this.isIgnorePositionEnabled(option)) {
+      return;
     }
 
-    if (!this.isToggleEnabled(option)) {
-      throw new AutomationError('Failed to enable Ignore Position.');
+    const candidates = this.getClickCandidates(option);
+    for (const candidate of candidates) {
+      this.throwIfStopped();
+      await this.clickElement(candidate);
+      const enabled = await this.waitFor(() => this.isIgnorePositionEnabled(option), 2500, '', true);
+      if (enabled) {
+        return;
+      }
     }
+
+    throw new AutomationError('Failed to enable Ignore Position after multiple click strategies.');
   }
 
   async setSortLowToHigh() {
@@ -316,21 +323,36 @@ class SbcAutomator {
     });
   }
 
-  findToggleByLabel(label) {
-    const target = this.findByText(['label', 'span', 'div'], label);
-    if (!target) {
+  findIgnorePositionControl() {
+    const labelNode = this.findByText(['label', 'span', 'div', 'li', 'p'], 'Ignore Position');
+    if (!labelNode) {
       return null;
     }
-    return target.closest('[role="switch"], [role="checkbox"], label, .toggle') || target;
+
+    return (
+      labelNode.closest('[role="switch"], [role="checkbox"], label, .toggle, li, .row, .setting, .ut-toggle-row') ||
+      labelNode.parentElement ||
+      labelNode
+    );
   }
 
-  isToggleEnabled(node) {
+  isIgnorePositionEnabled(node) {
+    const target = node || this.findIgnorePositionControl();
+    if (!target) {
+      return false;
+    }
+
+    const text = this.getNormalizedText(target);
     return (
-      node.getAttribute('aria-checked') === 'true' ||
-      node.getAttribute('data-checked') === 'true' ||
-      node.classList.contains('is-selected') ||
-      node.classList.contains('active') ||
-      node.querySelector('input[type="checkbox"]:checked') !== null
+      target.getAttribute('aria-checked') === 'true' ||
+      target.getAttribute('data-checked') === 'true' ||
+      target.classList.contains('is-selected') ||
+      target.classList.contains('active') ||
+      target.classList.contains('selected') ||
+      target.querySelector('input[type="checkbox"]:checked') !== null ||
+      text.includes('ignore position on') ||
+      text.includes('ignore position yes') ||
+      text.includes('ignore position enabled')
     );
   }
 

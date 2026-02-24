@@ -52,6 +52,10 @@ The loop stops when:
 
 ## Troubleshooting
 
+- **Automation stopped: Failed to enable Ignore Position**
+  - Open Squad Builder once manually and verify the **Ignore Position** control is visible.
+  - The extension now retries multiple clickable wrappers for this toggle, but if EA changes labels/styles you may need to refresh and retry.
+
 - **Automation stopped: Could not open SBC after click attempts**
   - The Web App sometimes nests the clickable tile inside multiple wrappers.
   - Re-open **SBCs → Favourites**, and confirm the SBC card is visible before pressing **Start**.
