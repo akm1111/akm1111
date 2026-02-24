@@ -77,3 +77,12 @@ The loop stops when:
   - Refresh the FC Web App tab once, then press **Start** again.
   - If needed, close and reopen the extension popup and retry.
 
+
+## Standalone Web App Mode (No Extension)
+
+If you prefer not to use a Chrome extension, you can run the standalone in-page app:
+
+- Script: `standalone/fc26-sbc-webapp.js`
+- Guide: `standalone/README.md`
+
+This mode injects a dashboard directly into the FC26 Web App tab with Start/Stop, recovery controls, and runtime logs.
