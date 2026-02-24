@@ -355,6 +355,9 @@ class SbcAutomator {
 
   notify(message, level = 'info') {
     console.log(this.logPrefix, message);
+    chrome.storage?.local?.set({ lastStatusMessage: message }).catch(() => {
+      // ignore storage failures
+    });
     chrome.runtime.sendMessage({ type: 'AUTOMATION_STATUS', message, level }).catch(() => {
       // popup may be closed; ignore
     });
@@ -366,6 +369,11 @@ const automator = new SbcAutomator();
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message?.type) {
     return;
+  }
+
+  if (message.type === 'PING_AUTOMATION') {
+    sendResponse({ ok: true, running: automator.running, sbcName: automator.sbcName });
+    return true;
   }
 
   if (message.type === 'START_AUTOMATION') {

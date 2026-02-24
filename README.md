@@ -52,6 +52,11 @@ The loop stops when:
 
 ## Troubleshooting
 
+- **Popup shows “Automation running...” but nothing happens**
+  - Make sure the FC Web App tab is active and still on **SBCs → Favourites**.
+  - Keep the tab in foreground for the first run so UI transitions can be detected.
+  - Open the extension popup to see live step messages (e.g. "Pass #1", "Submission confirmed").
+
 - **Start failed: Could not establish connection. Receiving end does not exist.**
   - Make sure the active tab is the FC Web App page.
   - Refresh the FC Web App tab once, then press **Start** again.
