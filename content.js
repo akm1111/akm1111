@@ -28,7 +28,7 @@ class SbcAutomator {
   async main() {
     this.notify(`Starting on SBC: ${this.sbcName}`);
     await this.ensureOnSbcFavourites();
-    await this.openSbcByExactName(this.sbcName);
+    await this.openSbcByName(this.sbcName);
 
     while (this.running && !this.aborted) {
       await this.runCommonGoldPassAndSubmit();
@@ -71,9 +71,9 @@ class SbcAutomator {
     }
   }
 
-  async openSbcByExactName(name) {
+  async openSbcByName(name) {
     this.notify(`Locating SBC card: ${name}`);
-    const card = await this.waitFor(() => this.findExactTextElement(name), this.defaultTimeoutMs, `SBC card not found: ${name}`);
+    const card = await this.waitFor(() => this.findSbcCardByName(name), this.defaultTimeoutMs, `SBC card not found: ${name}`);
     if (!card) {
       throw new AutomationError(`SBC "${name}" not found in Favourites.`);
     }
@@ -84,7 +84,7 @@ class SbcAutomator {
     for (const candidate of candidates) {
       this.throwIfStopped();
       await this.clickElement(candidate);
-      const result = await this.waitFor(() => this.isInsideSelectedSbc(name), 4000, '', true);
+      const result = await this.waitFor(() => this.isInsideSelectedSbc(name), 5000, '', true);
       if (result) {
         opened = true;
         break;
@@ -104,7 +104,7 @@ class SbcAutomator {
       await this.clickElement(backButton);
     }
     await this.ensureOnSbcFavourites();
-    await this.openSbcByExactName(name);
+    await this.openSbcByName(name);
   }
 
   async openSquadBuilder() {
@@ -211,10 +211,36 @@ class SbcAutomator {
     this.notify('Submission confirmed.');
   }
 
+  findSbcCardByName(name) {
+    const exact = this.findExactTextElement(name);
+    if (exact) {
+      return exact;
+    }
+
+    const target = this.simplifySbcName(name);
+    const nodes = [...document.querySelectorAll('button, [role="button"], h1, h2, h3, div, span, li, article')];
+
+    return (
+      nodes.find((node) => {
+        const text = this.simplifySbcName(this.getNormalizedText(node));
+        return text === target || text.includes(target) || target.includes(text);
+      }) || null
+    );
+  }
+
+  simplifySbcName(value) {
+    return this.normalize(value)
+      .replace(/^\d+\s*of\s*\d+\s*/g, '')
+      .replace(/^\d+\/\d+\s*/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   getClickCandidates(node) {
     const ordered = [
       node.closest('button, [role="button"], .tile, .listFUTItem, .ut-tile, .sbc-set-tile'),
-      node.closest('[tabindex], li, article, .tileContent'),
+      node.closest('[tabindex], li, article, .tileContent, .ut-item-view'),
+      node.closest('.listFUTItem, .tile, li, article'),
       node,
       node.parentElement
     ].filter(Boolean);
@@ -225,16 +251,25 @@ class SbcAutomator {
         unique.push(item);
       }
     }
+    for (const item of [...unique]) {
+      const nested = [...item.querySelectorAll('button, [role="button"], [tabindex]')];
+      for (const child of nested) {
+        if (!unique.includes(child)) {
+          unique.push(child);
+        }
+      }
+    }
+
     return unique;
   }
 
   isInsideSelectedSbc(name) {
     const hasSquadBuilder = !!this.findButtonByTexts(['Squad Builder']);
     const hasSubmitPath = !!this.findButtonByTexts(['Submit', 'Exchange Squad']);
-    const inFavourites = !!this.findByText(['h1', 'h2', 'h3', '[role="heading"]'], 'Favourites');
-    const titlePresent = !!this.findExactTextElement(name);
+    const hasRequirementLabels = !!this.findByText(['div', 'span', 'li', 'p'], 'Requirements');
+    const hasChallengeUi = !!this.findByText(['div', 'span', 'h1', 'h2', 'h3'], 'Challenge') || !!this.findByText(['div', 'span', 'h1', 'h2', 'h3'], 'Squad');
 
-    return (hasSquadBuilder || hasSubmitPath) && (!inFavourites || titlePresent);
+    return hasSquadBuilder || hasSubmitPath || hasRequirementLabels || hasChallengeUi;
   }
 
   async removeExactlyThreePlayers() {

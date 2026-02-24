@@ -52,6 +52,11 @@ The loop stops when:
 
 ## Troubleshooting
 
+- **Automation stopped: Could not open SBC after click attempts**
+  - The Web App sometimes nests the clickable tile inside multiple wrappers.
+  - Re-open **SBCs → Favourites**, and confirm the SBC card is visible before pressing **Start**.
+  - Try entering the base SBC name (for example `81+ Player Pick`) even if card text shows `1 of 3 ...`.
+
 - **Automation stopped: Timed out waiting for UI state**
   - This usually means the SBC card did not actually open or the page labels changed.
   - Confirm you are on **SBCs → Favourites** and the SBC name matches exactly.
