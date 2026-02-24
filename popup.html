@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FC 26 SBC Automation</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>FC 26 SBC Automation</h1>
+      <label for="sbcName">Exact SBC name</label>
+      <input id="sbcName" type="text" placeholder="e.g. 82+ Upgrade" autocomplete="off" />
+
+      <div class="buttons">
+        <button id="startBtn" class="primary">Start</button>
+        <button id="stopBtn" class="danger">Stop</button>
+      </div>
+
+      <p id="status" aria-live="polite">Idle.</p>
+    </main>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>
