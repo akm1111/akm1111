@@ -4,10 +4,13 @@ class SbcAutomator {
   constructor() {
     this.running = false;
     this.aborted = false;
+    this.paused = false;
     this.sbcName = '';
     this.logPrefix = '[FC26-SBC]';
     this.defaultTimeoutMs = 15000;
     this.lastAction = 'idle';
+    this.maxRecoveriesPerStep = 3;
+    this.stepRecoveryStats = {};
   }
 
   start(sbcName) {
@@ -20,29 +23,201 @@ class SbcAutomator {
     }
     this.running = true;
     this.aborted = false;
+    this.paused = false;
     this.sbcName = sbcName;
+    this.stepRecoveryStats = {};
     this.main().catch((error) => this.failSafeStop(error));
   }
 
   stop() {
     this.aborted = true;
     this.running = false;
+    this.paused = false;
     this.notify('Stopped by user.');
   }
 
   async main() {
     this.notify(`Starting on SBC: ${this.sbcName}`);
-    await this.ensureOnSbcFavourites();
-    await this.openSbcByName(this.sbcName);
+
+    const preflightOk = await this.selfHealStep('Preflight navigation', async () => {
+      await this.ensureOnSbcFavourites();
+      await this.openSbcByName(this.sbcName);
+    });
+    if (!preflightOk) {
+      await this.enterGracefulPause('Preflight failed after safe recovery attempts.');
+      return;
+    }
 
     while (this.running && !this.aborted) {
-      await this.runCommonGoldPassAndSubmit();
-      await this.removeExactlyThreePlayers();
-      await this.runRareGoldPassAndSubmit();
-      await this.verifySubmissionSuccess();
-      this.notify('Loop complete; restarting on same SBC.');
-      await this.reopenSbcByName(this.sbcName);
+      await this.waitIfPaused();
+      const cycleOk = await this.runCycleWithHealing();
+      if (!cycleOk) {
+        await this.enterGracefulPause('Cycle paused: awaiting stable UI/network state.');
+      }
     }
+  }
+
+  async runCycleWithHealing() {
+    const steps = [
+      ['Pass #1 Common Gold + Submit', () => this.runCommonGoldPassAndSubmit()],
+      ['Remove exactly 3 players', () => this.removeExactlyThreePlayers()],
+      ['Pass #2 Rare Gold + Submit', () => this.runRareGoldPassAndSubmit()],
+      ['Verify submission success', () => this.verifySubmissionSuccess()],
+      ['Reopen same SBC', () => this.reopenSbcByName(this.sbcName)]
+    ];
+
+    for (const [name, fn] of steps) {
+      await this.waitIfPaused();
+      const ok = await this.selfHealStep(name, fn);
+      if (!ok) {
+        return false;
+      }
+    }
+
+    this.notify('Loop complete; restarting on same SBC.');
+    return true;
+  }
+
+  async selfHealStep(stepName, action, options = {}) {
+    const maxAttempts = options.maxAttempts || this.maxRecoveriesPerStep;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      this.throwIfStopped();
+      try {
+        await action();
+        if (attempt > 1) {
+          this.notify(`Recovery succeeded for step "${stepName}" on attempt ${attempt}.`);
+        }
+        this.stepRecoveryStats[stepName] = { attempts: attempt, recovered: attempt > 1, at: Date.now() };
+        return true;
+      } catch (error) {
+        lastError = error;
+        this.warn(`Step "${stepName}" failed (attempt ${attempt}/${maxAttempts}): ${error.message}`);
+        const recovered = await this.attemptRecovery(stepName, error, attempt, maxAttempts);
+        if (!recovered && attempt >= maxAttempts) {
+          break;
+        }
+      }
+    }
+
+    this.warn(`Step "${stepName}" could not be repaired automatically: ${lastError?.message || 'unknown error'}`);
+    return false;
+  }
+
+  async attemptRecovery(stepName, error, attempt, maxAttempts) {
+    this.throwIfStopped();
+
+    const lowerMessage = String(error?.message || '').toLowerCase();
+    if (lowerMessage.includes('automation stopped')) {
+      return false;
+    }
+
+    this.notify(`Self-heal: attempting recovery for "${stepName}" (${attempt}/${maxAttempts})...`);
+
+    if (/favourites|sbc card|open sbc|reopen/i.test(stepName) || lowerMessage.includes('favourites') || lowerMessage.includes('sbc')) {
+      await this.safeWait(600);
+      await this.safeEnsureFavourites();
+      return true;
+    }
+
+    if (/squad builder|ignore position|sort|quality|generate|apply/i.test(stepName)) {
+      await this.safeWait(600);
+      await this.safeRecoverBuilder();
+      return true;
+    }
+
+    if (/submit|verify submission/i.test(stepName) || lowerMessage.includes('submit')) {
+      await this.safeWait(1000);
+      await this.safeEnsureSbcContext();
+      return true;
+    }
+
+    if (/remove exactly 3 players/i.test(stepName)) {
+      await this.safeWait(600);
+      await this.safeEnsureSbcContext();
+      return true;
+    }
+
+    await this.safeWait(1000);
+    await this.safeEnsureSbcContext();
+    return true;
+  }
+
+  async safeWait(ms) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async safeEnsureFavourites() {
+    const onFavourites = !!this.findByText(['h1', 'h2', 'h3', '[role="heading"]'], 'Favourites');
+    if (onFavourites) {
+      return;
+    }
+
+    const backButton = this.findButtonByTexts(['Back', 'Return', 'SBCs']);
+    if (backButton) {
+      await this.clickNavigationElement(backButton);
+      await this.waitFor(() => this.findByText(['h1', 'h2', 'h3', '[role="heading"]'], 'Favourites'), this.defaultTimeoutMs, '', true);
+    }
+  }
+
+  async safeEnsureSbcContext() {
+    if (this.isInsideSelectedSbc(this.sbcName)) {
+      return;
+    }
+
+    await this.safeEnsureFavourites();
+    await this.openSbcByName(this.sbcName);
+  }
+
+  async safeRecoverBuilder() {
+    await this.safeEnsureSbcContext();
+    const builderVisible = !!this.findButtonByTexts(['Sort', 'Player Quality', 'Build Squad', 'Generate Squad']);
+    if (builderVisible) {
+      return;
+    }
+    const openBuilder = this.findButtonByTexts(['Squad Builder']);
+    if (openBuilder) {
+      await this.clickElement(openBuilder);
+      await this.waitFor(
+        () => this.findButtonByTexts(['Sort', 'Player Quality', 'Build Squad', 'Generate Squad']),
+        this.defaultTimeoutMs,
+        '',
+        true
+      );
+    }
+  }
+
+  async waitIfPaused() {
+    while (this.running && !this.aborted && this.paused) {
+      this.notify('Paused: waiting for stable UI/network. Will auto-resume when recovered.');
+      const recovered = await this.selfHealStep(
+        'Paused recovery checkpoint',
+        async () => {
+          await this.safeEnsureSbcContext();
+        },
+        { maxAttempts: 2 }
+      );
+      if (recovered) {
+        this.paused = false;
+        this.notify('Auto-resume successful. Continuing automation.');
+        return;
+      }
+      await this.safeWait(3000);
+    }
+  }
+
+  async enterGracefulPause(reason) {
+    if (!this.running || this.aborted) {
+      return;
+    }
+    this.paused = true;
+    this.notify(`Automation paused safely: ${reason}`);
+  }
+
+  warn(message) {
+    console.warn(this.logPrefix, message);
+    this.notify(message, 'warning');
   }
 
   async runCommonGoldPassAndSubmit() {
@@ -81,7 +256,7 @@ class SbcAutomator {
     this.setAction(`Open SBC card: ${name}`);
     this.notify(`Locating SBC card: ${name}`);
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       const card = await this.waitFor(
         () => this.findSbcCardByName(name),
         this.defaultTimeoutMs,
@@ -100,7 +275,7 @@ class SbcAutomator {
       for (const candidate of candidates) {
         this.throwIfStopped();
         await this.clickNavigationElement(candidate);
-        const opened = await this.waitFor(() => this.waitForSbcOpenStable(name), 7000, '', true);
+        const opened = await this.waitFor(() => this.waitForSbcOpenStable(name), 8000, '', true);
         if (opened) {
           this.notify(`Verified SBC opened: ${name}`);
           return;
@@ -116,7 +291,7 @@ class SbcAutomator {
   async reopenSbcByName(name) {
     const backButton = this.findButtonByTexts(['Back', 'Return', 'SBCs']);
     if (backButton) {
-      await this.clickElement(backButton);
+      await this.clickNavigationElement(backButton);
     }
     await this.ensureOnSbcFavourites();
     await this.openSbcByName(name);
@@ -129,6 +304,11 @@ class SbcAutomator {
       throw new AutomationError('Squad Builder button not found.');
     }
     await this.clickElement(button);
+    await this.waitFor(
+      () => this.findButtonByTexts(['Sort', 'Player Quality', 'Build Squad', 'Generate Squad']),
+      this.defaultTimeoutMs,
+      'Timed out: Squad Builder panel did not open.'
+    );
   }
 
   async enableIgnorePosition() {
@@ -157,7 +337,6 @@ class SbcAutomator {
         }
       }
 
-      // If a bad click closed the builder pane, recover and retry once.
       const squadBuilderButton = this.findButtonByTexts(['Squad Builder']);
       if (squadBuilderButton && cycle === 0) {
         await this.clickElement(squadBuilderButton);
@@ -176,7 +355,11 @@ class SbcAutomator {
     }
     await this.clickElement(sortBtn);
 
-    const lowToHigh = await this.waitFor(() => this.findByText(['button', '[role="option"]', 'li'], 'Player Rating (Low -> High)') || this.findByText(['button', '[role="option"]', 'li'], 'Player Rating (Low → High)'));
+    const lowToHigh = await this.waitFor(
+      () => this.findByText(['button', '[role="option"]', 'li'], 'Player Rating (Low -> High)') || this.findByText(['button', '[role="option"]', 'li'], 'Player Rating (Low → High)'),
+      this.defaultTimeoutMs,
+      'Timed out: Sort option not available.'
+    );
     if (!lowToHigh) {
       throw new AutomationError('Sort option Player Rating (Low → High) not found.');
     }
@@ -191,7 +374,7 @@ class SbcAutomator {
     }
     await this.clickElement(qualityBtn);
 
-    const qualityOpt = await this.waitFor(() => this.findByText(['button', '[role="option"]', 'li'], label));
+    const qualityOpt = await this.waitFor(() => this.findByText(['button', '[role="option"]', 'li'], label), this.defaultTimeoutMs, `Timed out: ${label} option not found.`);
     if (!qualityOpt) {
       throw new AutomationError(`${label} option not found.`);
     }
@@ -279,8 +462,6 @@ class SbcAutomator {
     return bestScore >= 0.5 ? bestCard : null;
   }
 
-
-
   getFavouritesCardContainers() {
     const nodes = [
       ...document.querySelectorAll('article, li, .listFUTItem, .tile, .ut-tile, .sbc-set-tile, [role="button"], button')
@@ -300,7 +481,6 @@ class SbcAutomator {
       return true;
     });
   }
-
 
   scoreTitleMatch(title, target) {
     if (!title || !target) {
@@ -339,6 +519,7 @@ class SbcAutomator {
     container.scrollBy({ top: Math.max(200, Math.floor(window.innerHeight * 0.5)), behavior: 'auto' });
     await this.waitForFrame();
   }
+
   simplifySbcName(value) {
     return this.normalize(value)
       .replace(/^\d+\s*of\s*\d+\s*/g, '')
@@ -356,10 +537,7 @@ class SbcAutomator {
 
     const unique = [];
     for (const node of direct) {
-      if (!node || !node.isConnected) {
-        continue;
-      }
-      if (node.matches('a[href]')) {
+      if (!node || !node.isConnected || node.matches('a[href]')) {
         continue;
       }
       if (!unique.includes(node)) {
@@ -475,10 +653,7 @@ class SbcAutomator {
       ...option.querySelectorAll('[role="switch"], [role="checkbox"], input[type="checkbox"], button, [tabindex], .toggle, .ut-toggle')
     ];
     const prioritized = [...controls, option].filter((node) => {
-      if (!node || !node.isConnected) {
-        return false;
-      }
-      if (node.matches('a[href]')) {
+      if (!node || !node.isConnected || node.matches('a[href]')) {
         return false;
       }
       if (root && root !== document.body && !root.contains(node)) {
@@ -522,12 +697,6 @@ class SbcAutomator {
     const matcher = this.normalize(text);
     const nodes = [...root.querySelectorAll(selectors.join(','))];
     return nodes.find((node) => this.getNormalizedText(node).includes(matcher)) || null;
-  }
-
-  findExactTextElement(text) {
-    const matcher = this.normalize(text);
-    const nodes = [...document.querySelectorAll('button, [role="button"], h1, h2, h3, div, span')];
-    return nodes.find((node) => this.getNormalizedText(node) === matcher) || null;
   }
 
   normalize(value) {
@@ -639,13 +808,15 @@ class SbcAutomator {
   failSafeStop(error) {
     this.running = false;
     this.aborted = true;
+    this.paused = false;
     const reason = error instanceof Error ? error.message : String(error);
     console.error(this.logPrefix, reason, error);
     this.notify(`Automation stopped: ${reason} (step: ${this.lastAction})`, 'error');
   }
 
   notify(message, level = 'info') {
-    console.log(this.logPrefix, message);
+    const fn = level === 'error' ? console.error : level === 'warning' ? console.warn : console.log;
+    fn(this.logPrefix, message);
     chrome.storage?.local?.set({ lastStatusMessage: message }).catch(() => {
       // ignore storage failures
     });
@@ -673,7 +844,7 @@ state.messageListener = (message, _sender, sendResponse) => {
   const automator = state.automator;
 
   if (message.type === 'PING_AUTOMATION') {
-    sendResponse({ ok: true, running: automator.running, sbcName: automator.sbcName });
+    sendResponse({ ok: true, running: automator.running, paused: automator.paused, sbcName: automator.sbcName });
     return true;
   }
 
