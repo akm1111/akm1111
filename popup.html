@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FC 26 SBC Automator</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>FC 26 SBC Automator</h1>
+      <label for="sbcName">Exact SBC name</label>
+      <input id="sbcName" type="text" placeholder="e.g. 82+ x10 Upgrade" autocomplete="off" />
+
+      <label class="check-row" for="loopEnabled">
+        <input id="loopEnabled" type="checkbox" checked />
+        <span>Loop (ON by default)</span>
+      </label>
+
+      <div class="actions">
+        <button id="startBtn" class="start">Start</button>
+        <button id="stopBtn" class="stop">Stop</button>
+      </div>
+
+      <p id="status" role="status">Idle</p>
+      <pre id="log" aria-live="polite"></pre>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
