@@ -76,29 +76,37 @@ class SbcAutomator {
   async openSbcByName(name) {
     this.setAction(`Open SBC card: ${name}`);
     this.notify(`Locating SBC card: ${name}`);
-    const card = await this.waitFor(() => this.findSbcCardByName(name), this.defaultTimeoutMs, `SBC card not found: ${name}`);
-    if (!card) {
-      throw new AutomationError(`SBC "${name}" not found in Favourites.`);
-    }
 
-    const candidates = this.getClickCandidates(card);
-    let opened = false;
-
-    for (const candidate of candidates) {
-      this.throwIfStopped();
-      await this.clickElement(candidate);
-      const result = await this.waitFor(() => this.isInsideSelectedSbc(name), 5000, '', true);
-      if (result) {
-        opened = true;
-        break;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const card = await this.waitFor(
+        () => this.findSbcCardByName(name),
+        this.defaultTimeoutMs,
+        `SBC card not found: ${name}`,
+        true
+      );
+      if (!card) {
+        await this.scrollFavouritesList();
+        continue;
       }
+
+      card.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+      await this.waitForFrame();
+
+      const candidates = this.getClickCandidates(card);
+      for (const candidate of candidates) {
+        this.throwIfStopped();
+        await this.clickElement(candidate);
+        const opened = await this.waitFor(() => this.isInsideSelectedSbc(name), 6000, '', true);
+        if (opened) {
+          this.notify(`Verified SBC opened: ${name}`);
+          return;
+        }
+      }
+
+      await this.scrollFavouritesList();
     }
 
-    if (!opened) {
-      throw new AutomationError(`Could not open SBC "${name}" after click attempts.`);
-    }
-
-    this.notify(`Verified SBC opened: ${name}`);
+    throw new AutomationError(`Could not open SBC "${name}" after click attempts.`);
   }
 
   async reopenSbcByName(name) {
@@ -243,22 +251,75 @@ class SbcAutomator {
   }
 
   findSbcCardByName(name) {
-    const exact = this.findExactTextElement(name);
-    if (exact) {
-      return exact;
+    const target = this.simplifySbcName(name);
+    const cards = this.getFavouritesCardContainers();
+
+    for (const card of cards) {
+      const titleNode = this.findCardTitleNode(card, target);
+      if (!titleNode) {
+        continue;
+      }
+      const title = this.simplifySbcName(this.getNormalizedText(titleNode));
+      if (title === target) {
+        return card;
+      }
     }
 
-    const target = this.simplifySbcName(name);
-    const nodes = [...document.querySelectorAll('button, [role="button"], h1, h2, h3, div, span, li, article')];
+    for (const card of cards) {
+      const titleNode = this.findCardTitleNode(card, target);
+      if (!titleNode) {
+        continue;
+      }
+      const title = this.simplifySbcName(this.getNormalizedText(titleNode));
+      if (title.includes(target) || target.includes(title)) {
+        return card;
+      }
+    }
+
+    return null;
+  }
+
+
+  getFavouritesCardContainers() {
+    const nodes = [
+      ...document.querySelectorAll('article, li, .listFUTItem, .tile, .ut-tile, .sbc-set-tile, [role="button"], button')
+    ];
+
+    return nodes.filter((node) => {
+      const text = this.getNormalizedText(node);
+      if (!text || text.length < 4) {
+        return false;
+      }
+      if (!node.offsetParent) {
+        return false;
+      }
+      if (text.includes('squad builder') || text.includes('submit') || text.includes('exchange squad')) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  findCardTitleNode(card, target) {
+    const titleSelectors = ['h1', 'h2', 'h3', '.title', '.name', '.challenge-name', '.tileTitle', 'span', 'div', 'p'];
+    const nodes = [card, ...card.querySelectorAll(titleSelectors.join(','))];
 
     return (
       nodes.find((node) => {
-        const text = this.simplifySbcName(this.getNormalizedText(node));
-        return text === target || text.includes(target) || target.includes(text);
+        const title = this.simplifySbcName(this.getNormalizedText(node));
+        return title === target || title.includes(target) || target.includes(title);
       }) || null
     );
   }
 
+  async scrollFavouritesList() {
+    const container = document.querySelector('.ut-item-view, .listFUTItemContainer, .ut-sbc-set-view, .scrollable, main') || document.scrollingElement;
+    if (!container) {
+      return;
+    }
+    container.scrollBy({ top: Math.max(200, Math.floor(window.innerHeight * 0.5)), behavior: 'auto' });
+    await this.waitForFrame();
+  }
   simplifySbcName(value) {
     return this.normalize(value)
       .replace(/^\d+\s*of\s*\d+\s*/g, '')
@@ -298,9 +359,14 @@ class SbcAutomator {
     const hasSquadBuilder = !!this.findButtonByTexts(['Squad Builder']);
     const hasSubmitPath = !!this.findButtonByTexts(['Submit', 'Exchange Squad']);
     const hasRequirementLabels = !!this.findByText(['div', 'span', 'li', 'p'], 'Requirements');
-    const hasChallengeUi = !!this.findByText(['div', 'span', 'h1', 'h2', 'h3'], 'Challenge') || !!this.findByText(['div', 'span', 'h1', 'h2', 'h3'], 'Squad');
+    const target = this.simplifySbcName(name);
+    const headers = [...document.querySelectorAll('h1, h2, h3, .title, .challenge-name, .tileTitle, [role="heading"]')];
+    const titleMatches = headers.some((node) => {
+      const text = this.simplifySbcName(this.getNormalizedText(node));
+      return text === target || text.includes(target) || target.includes(text);
+    });
 
-    return hasSquadBuilder || hasSubmitPath || hasRequirementLabels || hasChallengeUi;
+    return (hasSquadBuilder || hasSubmitPath || hasRequirementLabels) && titleMatches;
   }
 
   async removeExactlyThreePlayers() {
